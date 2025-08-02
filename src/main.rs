@@ -11,7 +11,7 @@ use eframe::egui::{Context, ProgressBar, Ui};
 use egui_file_dialog::FileDialog;
 use glcm::run_glcm_map;
 use glcm::ui::MapOpts;
-use glcm::ui::{GLCMFeature};
+use glcm::glcm::GLCMFeature;
 use array_lib::{io_nrrd, ArrayDim};
 
 fn main() {
