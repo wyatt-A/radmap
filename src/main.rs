@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use array_lib::io_nifti::{write_nifti_with_header, NiftiHeader};
 use array_lib::io_nrrd::{write_nrrd, Encoding, NRRD};
 use array_lib::{io_nifti, io_nrrd, ArrayDim};
