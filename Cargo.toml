@@ -6,6 +6,6 @@ edition = "2024"
 [dependencies]
 eframe = "0.32.0"
 egui-file-dialog = "0.11.0"
-glcm = {path = "../glcm", features = ["openblas-system"]}
+glcm = {git = "ssh://git@github.com/wyatt-A/glcm", features = ["mkl-static"]}
 strum = "0.27.2"
 array-lib = {git = "ssh://git@github.com/wyatt-A/array-lib", features = ["io-nrrd","io-nifti"]}
