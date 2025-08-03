@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 use eframe::{egui, Frame, NativeOptions};
 use eframe;
 use eframe::egui::{vec2, Color32, Context, IconData, ProgressBar, RichText, Ui};
@@ -30,7 +31,7 @@ fn main() {
     let mut native_options = NativeOptions::default();
     native_options.vsync = true;
     native_options.viewport.icon = Some(Arc::new(icon));
-    native_options.viewport.inner_size = Some(vec2( 1000.0,600.0));
+    native_options.viewport.inner_size = Some(vec2( 1000.0,700.0));
 
     eframe::run_native(
         "RadMap",
@@ -48,6 +49,7 @@ pub struct GUI {
     glcm_launcher: GLCMLauncher,
     progress: Progress,
     map_opts: MapOpts,
+    file_dialog: FileDialog,
 }
 
 impl Default for GUI {
@@ -60,6 +62,7 @@ impl Default for GUI {
             glcm_launcher: Default::default(),
             progress: Default::default(),
             map_opts: MapOpts::default(),
+            file_dialog: FileDialog::default(),
         }
     }
 }
@@ -78,7 +81,7 @@ impl eframe::App for GUI {
 
                 columns[1].vertical(|ui| {
                     update_data_loader(&mut self.data_loader, ctx,  ui);
-                    update_output_selector(&mut self.output_selector,&self.data_loader,&self.feature_selector,&mut self.glcm_launcher, ctx,  ui);
+                    update_output_selector(&mut self.output_selector,&mut self.file_dialog, &self.data_loader,&self.feature_selector,&mut self.glcm_launcher, ctx,  ui);
 
                     update_glcm_launcher(
                         &mut self.map_opts, &mut self.progress, &mut self.glcm_launcher,&self.opts_selector,
@@ -102,33 +105,9 @@ pub fn update_options(opts:&mut MapOpts, map_opts:&MapOptSelector, features:&Fea
     opts.features = features.selected_features.clone();
     opts.n_bins = map_opts.num_bins;
     opts.separator = None;
+    opts.max_threads = map_opts.max_threads;
 
 }
-
-// /****************************
-// ******* DATA EXPORT ********
-// ****************************/
-//
-// pub struct Export {
-//
-//     /// save data as single precision 32-bit float
-//     save_float: bool,
-//
-// }
-//
-// impl Default for Export {
-//     fn default() -> Self {
-//         Export {
-//             save_float: true,
-//         }
-//     }
-// }
-//
-// pub fn update_export(export:&mut Export, launcher:&mut GLCMLauncher,  ui:&mut Ui) {
-//
-//
-// }
-
 
 /****************************
 ******* GLCM LAUNCHER *******
@@ -139,6 +118,8 @@ pub struct GLCMLauncher {
     handle:Option<JoinHandle<(Vec<f32>,ArrayDim)>>,
     is_running: bool,
     succeeded: bool,
+    start:Option<Instant>,
+    elapsed:Option<Duration>,
 }
 
 impl Default for GLCMLauncher {
@@ -149,6 +130,8 @@ impl Default for GLCMLauncher {
             handle: None,
             is_running: false,
             succeeded: false,
+            start: None,
+            elapsed: None,
         }
     }
 }
@@ -165,6 +148,10 @@ pub fn update_glcm_launcher(map_opts:&mut MapOpts, progress:&mut Progress, launc
         update_options(map_opts, opts_selector, features);
 
         if ui.button("LAUNCH").clicked() {
+
+            launcher.elapsed = None;
+            launcher.start = Some(Instant::now());
+
             let vol_path = data_selector.volume_path.as_ref().unwrap().clone();
             let vol_handle = std::thread::spawn(move || {
                 if vol_path.extension().unwrap() == "nii" || vol_path.extension().unwrap() == "nii.gz" {
@@ -222,6 +209,7 @@ pub fn update_glcm_launcher(map_opts:&mut MapOpts, progress:&mut Progress, launc
             launcher.result = Some(result);
             launcher.is_running = false;
             launcher.succeeded = true;
+            launcher.elapsed = launcher.start.map(|s|s.elapsed());
         }else {
             launcher.handle = Some(h);
         }
@@ -232,7 +220,8 @@ pub fn update_glcm_launcher(map_opts:&mut MapOpts, progress:&mut Progress, launc
     }
 
     if launcher.succeeded {
-        ui.label("feature calculations succeeded");
+        ui.label("feature extraction succeeded!");
+        ui.label(&format!("calculation time: {:.3} minutes",launcher.elapsed.unwrap().as_secs_f64() / 60.));
     }
 
 }
@@ -326,6 +315,8 @@ pub struct MapOptSelector {
     num_bins: usize,
     kernel_radius_buf: String,
     num_bins_buf: String,
+    max_threads: Option<usize>,
+    max_threads_buf: String,
 }
 
 impl Default for MapOptSelector {
@@ -334,7 +325,9 @@ impl Default for MapOptSelector {
             kernel_radius: 1,
             num_bins: 32,
             kernel_radius_buf: String::new(),
-            num_bins_buf: String::new()
+            num_bins_buf: String::new(),
+            max_threads: None,
+            max_threads_buf: String::new(),
         }
     }
 }
@@ -371,6 +364,20 @@ pub fn update_map_options(map_opts:&mut MapOptSelector, ctx: &Context, ui: &mut 
         }
     });
 
+    ui.horizontal(|ui|{
+        let max_workers = map_opts.max_threads.map(|x|x.to_string()).unwrap_or("all available".to_string());
+        ui.label(format!("Max Threads: [{max_workers}]\t "));
+        let te = egui::TextEdit::singleline(&mut map_opts.max_threads_buf).desired_width(40.0);
+        let h = ui.add(te);
+        if h.lost_focus() {
+            if let Ok(parsed) = map_opts.max_threads_buf.parse::<i32>() {
+                map_opts.max_threads = Some(parsed.abs() as usize);
+            }else {
+                map_opts.max_threads = None;
+            }
+        }
+    });
+
 }
 
 /****************************
@@ -379,7 +386,7 @@ pub fn update_map_options(map_opts:&mut MapOptSelector, ctx: &Context, ui: &mut 
 pub struct OutputSelector {
     output_dir_buf: String,
     output_dir: Option<PathBuf>,
-    output_dir_dialog: FileDialog,
+    //output_dir_dialog: FileDialog,
     handle: Option<JoinHandle<bool>>,
     is_writing_output: bool,
     is_complete: bool,
@@ -390,7 +397,7 @@ impl Default for OutputSelector {
         Self {
             output_dir_buf: String::new(),
             output_dir: None,
-            output_dir_dialog: FileDialog::new(),
+            //output_dir_dialog: FileDialog::new(),
             handle: None,
             is_writing_output: false,
             is_complete: false,
@@ -398,7 +405,7 @@ impl Default for OutputSelector {
     }
 }
 
-pub fn update_output_selector(output_selector:&mut OutputSelector, input_selector: &InputSelector, features:&FeatureSelector, launcher: &mut GLCMLauncher, ctx: &Context, ui: &mut Ui) {
+pub fn update_output_selector(output_selector:&mut OutputSelector, file_dialog:&mut FileDialog, input_selector: &InputSelector, features:&FeatureSelector, launcher: &mut GLCMLauncher, ctx: &Context, ui: &mut Ui) {
 
     ui.horizontal(|ui|{
         ui.label("Output Directory:");
@@ -411,7 +418,8 @@ pub fn update_output_selector(output_selector:&mut OutputSelector, input_selecto
         let h = ui.text_edit_singleline(&mut output_selector.output_dir_buf);
 
         if ui.button("browse").clicked() {
-            output_selector.output_dir_dialog.pick_directory()
+            //output_selector.output_dir_dialog.pick_directory()
+            file_dialog.pick_directory();
         }
 
         if h.lost_focus() {
@@ -424,9 +432,9 @@ pub fn update_output_selector(output_selector:&mut OutputSelector, input_selecto
 
     });
 
-    output_selector.output_dir_dialog.update(ctx);
+    file_dialog.update(ctx);
 
-    if let Some(path) = output_selector.output_dir_dialog.take_picked() {
+    if let Some(path) = file_dialog.take_picked() {
         output_selector.output_dir_buf = path.display().to_string();
         output_selector.output_dir = Some(path);
     }
@@ -454,7 +462,7 @@ pub fn update_output_selector(output_selector:&mut OutputSelector, input_selecto
                 for (f,alias) in feature_aliases {
                     let i = f as usize;
                     let vol = &data[i*vol_stride..(i+1) * vol_stride];
-                    let path = t_output_dir.join(format!("{}{}{}",file_stem,"_",alias));
+                    let path = t_output_dir.join(format!("{}{}{}",file_stem,"_",alias.to_lowercase().replace(" ","_")));
                     let vol_dims = ArrayDim::from_shape(&dims.shape()[0..3]);
                     match &header {
                         Header::Nrrd(nhdr) => write_nrrd(path,vol,vol_dims,Some(nhdr),false, Encoding::raw),
