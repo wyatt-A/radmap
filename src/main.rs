@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use eframe::{egui, Frame, NativeOptions};
 use eframe;
-use eframe::egui::{Color32, Context, ProgressBar, RichText, Ui};
+use eframe::egui::{vec2, Color32, Context, IconData, ProgressBar, RichText, Ui};
 use egui_file_dialog::FileDialog;
 use glcm::run_glcm_map;
 use glcm::ui::MapOpts;
@@ -14,12 +14,23 @@ use glcm::glcm::GLCMFeature;
 use array_lib::{io_nifti, io_nrrd, ArrayDim};
 use array_lib::io_nifti::{write_nifti_with_header, NiftiHeader};
 use array_lib::io_nrrd::{write_nrrd, Encoding, NRRD};
-use eframe::egui::WidgetType::TextEdit;
+
+const ICON_BYTES: &[u8] = include_bytes!("../assets/icon.png");
 
 fn main() {
 
+    let icon = {
+        let img = image::load_from_memory(ICON_BYTES)
+            .expect("Failed to decode embedded PNG")
+            .into_rgba8();
+        let (width,height) = img.dimensions();
+        IconData { width, height, rgba: img.into_raw() }
+    };
+
     let mut native_options = NativeOptions::default();
     native_options.vsync = true;
+    native_options.viewport.icon = Some(Arc::new(icon));
+    native_options.viewport.inner_size = Some(vec2( 1000.0,600.0));
 
     eframe::run_native(
         "RadMap",
