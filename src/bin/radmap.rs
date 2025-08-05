@@ -57,10 +57,12 @@ fn main() {
 
     let args = Args::parse();
 
-    let mut opts = MapOpts::default();
-    opts.n_bins = args.n_bins.unwrap_or(32);
-    opts.kernel_radius = args.kernel_radius.map(|r| r.abs() as usize).unwrap_or(1);
-    opts.max_threads = args.max_threads;
+    let mut opts = MapOpts {
+        n_bins: args.n_bins.unwrap_or(32),
+        kernel_radius: args.kernel_radius.map(|r| r.unsigned_abs() as usize).unwrap_or(1),
+        max_threads: args.max_threads,
+        ..Default::default()
+    };
 
     if !args.output_dir.is_dir() {
         panic!("Output directory {} does not exist",args.output_dir.display());
@@ -75,13 +77,13 @@ fn main() {
     if !args.all_features {
         opts.features.clear();
         for f in args.feature {
-            let feature = GLCMFeature::from_str(&f.to_lowercase()).expect(&format!("Invalid GLCM feature: {}", f));
+            let feature = GLCMFeature::from_str(&f.to_lowercase()).unwrap_or_else(|_| panic!("Invalid GLCM feature: {}", f));
             opts.features.insert(feature,feature.to_string().to_lowercase());
         }
     }
 
     for to_omit in args.omit {
-        let feature = GLCMFeature::from_str(&to_omit.to_lowercase()).expect(&format!("Invalid GLCM feature: {}", to_omit));
+        let feature = GLCMFeature::from_str(&to_omit.to_lowercase()).unwrap_or_else(|_| panic!("Invalid GLCM feature: {}", to_omit));
         opts.features.remove(&feature);
     }
 
@@ -106,7 +108,7 @@ fn main() {
 
     let progress = Arc::new(AtomicUsize::new(0));
     let t_progress = progress.clone();
-    let t_dims = dims.clone();
+    let t_dims = dims;
     let t_opts = opts.clone();
     let now = Instant::now();
     let h = thread::spawn(move||{
@@ -142,10 +144,7 @@ fn main() {
             "_",
             alias.to_lowercase().replace(" ", "_")
         ));
-        match &header {
-            Header::Nrrd(nhdr) => write_nrrd(path, vol, dims, Some(nhdr), false, Encoding::raw),
-            Header::Nifti(nii) => write_nifti_with_header(path, vol, dims, nii),
-        };
+        write_volume(path, vol, dims, &header);
     }
 }
 
@@ -170,13 +169,13 @@ fn read_volume(path:impl AsRef<Path>) -> (Vec<f64>, ArrayDim, Header) {
     }
 }
 
-fn write_volume(dir:impl AsRef<Path>, vol:&[f32], vol_dims:ArrayDim, header:&Header) {
+fn write_volume(path:impl AsRef<Path>, vol:&[f32], vol_dims:ArrayDim, header:&Header) {
 
     match &header {
         Header::Nrrd(nhdr) => {
-            write_nrrd(dir, vol, vol_dims, Some(nhdr), false, Encoding::raw)
+            write_nrrd(path, vol, vol_dims, Some(nhdr), false, Encoding::raw)
         }
-        Header::Nifti(nii) => write_nifti_with_header(dir, vol, vol_dims, nii),
+        Header::Nifti(nii) => write_nifti_with_header(path, vol, vol_dims, nii),
     };
 
 }
