@@ -17,7 +17,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 
-const ICON_BYTES: &[u8] = include_bytes!("../assets/icon.png");
+const ICON_BYTES: &[u8] = include_bytes!("../../assets/icon.png");
 
 fn main() {
     let icon = {
@@ -576,20 +576,6 @@ pub fn update_data_loader(data_loader: &mut InputSelector, ctx: &Context, ui: &m
     });
 
     data_loader.mask_file_dialog.update(ctx);
-
-    // ui.horizontal(|ui|{
-    //     ui.label("Selected Volume:\t");
-    //     if let Some(vol_path) = &data_loader.volume_path {
-    //         ui.label(vol_path.display().to_string());
-    //     }
-    // });
-    //
-    // ui.horizontal(|ui| {
-    //     ui.label("Selected Mask:\t");
-    //     if let Some(mask_path) = &data_loader.mask_path {
-    //         ui.label(mask_path.display().to_string());
-    //     }
-    // });
 
     if let Some(path) = data_loader.volume_file_dialog.take_picked() {
         data_loader.volume_path_buf = path.display().to_string();
