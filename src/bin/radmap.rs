@@ -12,17 +12,24 @@ use clap::Parser;
 use glcm::core::GLCMFeature;
 use glcm::run_glcm_map;
 use glcm::ui::MapOpts;
+use strum::IntoEnumIterator;
 
 #[derive(Parser, Debug)]
 pub struct Args {
     /// input volume to generate feature maps from
-    input_vol: PathBuf,
+    #[arg(required_unless_present = "list_features")]
+    input_vol: Option<PathBuf>,
 
     /// output directory to write results
-    output_dir: PathBuf,
+    #[arg(required_unless_present = "list_features")]
+    output_dir: Option<PathBuf>,
 
     /// optional mask to limit number of voxels to accelerate calculations
     mask: Option<PathBuf>,
+
+    /// list all glcm features for reference
+    #[clap(short, long)]
+    list_features: bool,
 
     /// number of bins for the GLCM, 32 bins is default
     n_bins: Option<usize>,
@@ -57,6 +64,13 @@ fn main() {
 
     let args = Args::parse();
 
+    if args.list_features {
+        for f in GLCMFeature::iter() {
+            println!("{}",f.to_string().to_lowercase());
+        }
+        return
+    }
+
     let mut opts = MapOpts {
         n_bins: args.n_bins.unwrap_or(32),
         kernel_radius: args.kernel_radius.map(|r| r.unsigned_abs() as usize).unwrap_or(1),
@@ -64,15 +78,18 @@ fn main() {
         ..Default::default()
     };
 
-    if !args.output_dir.is_dir() {
-        panic!("Output directory {} does not exist",args.output_dir.display());
+    let output_dir = args.output_dir.as_ref().unwrap();
+    let input_vol = args.input_vol.as_ref().unwrap();
+
+    if !output_dir.is_dir() {
+        panic!("Output directory {} does not exist",output_dir.display());
     }
 
-    if !args.input_vol.is_file() {
-        panic!("Input volume {} file does not exist",args.input_vol.display());
+    if !input_vol.is_file() {
+        panic!("Input volume {} file does not exist",input_vol.display());
     }
 
-    let input_stem = args.input_vol.file_stem().unwrap().to_str().unwrap();
+    let input_stem = input_vol.file_stem().unwrap().to_str().unwrap();
 
     if !args.all_features {
         opts.features.clear();
@@ -91,7 +108,7 @@ fn main() {
         panic!("No features specified!");
     }
 
-    let (vol, dims, header) = read_volume(&args.input_vol);
+    let (vol, dims, header) = read_volume(input_vol);
     let mask = if let Some(mask) = &args.mask {
         let (mask_vol, mask_dims, ..) = read_volume(mask);
         assert_eq!(dims.shape_ns(), mask_dims.shape_ns(), "input volume and mask must have the same shape");
@@ -133,12 +150,12 @@ fn main() {
     let duration = now.elapsed();
     println!("{} voxels processed in {} minutes", masked_voxels, duration.as_secs_f64() / 60.);
 
-    println!("writing outputs to {}",args.output_dir.display());
+    println!("writing outputs to {}",output_dir.display());
     let vol_stride = dims.numel();
     for (&f, alias) in opts.features.iter() {
         let i = f as usize;
         let vol = &results[i * vol_stride..(i + 1) * vol_stride];
-        let path = args.output_dir.join(format!(
+        let path = output_dir.join(format!(
             "{}{}{}",
             input_stem,
             "_",
