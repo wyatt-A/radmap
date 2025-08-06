@@ -59,9 +59,9 @@ pub struct Args {
     #[clap(long)]
     max_threads:Option<usize>,
 
-    /// print the progress bar. To disable, pass --progress false
-    #[clap(long, default_value="true")]
-    progress: bool
+    /// disable printing the progress bar
+    #[clap(long,short)]
+    no_progress_bar: bool,
 
 }
 
@@ -86,7 +86,7 @@ fn main() {
     println!("num bins: {}",opts.n_bins);
     println!("kernel radius: {}",opts.kernel_radius);
     if let Some(threads) = opts.max_threads {
-        println!("limiting max logical cores to {}",threads);
+        println!("limiting max logical cores to {threads}");
     }else {
         let logical_cores = current_num_threads();
         println!("using all {logical_cores} logical cores for processing");
@@ -108,13 +108,13 @@ fn main() {
     if !args.all_features {
         opts.features.clear();
         for f in args.feature {
-            let feature = GLCMFeature::from_str(&f.to_lowercase()).unwrap_or_else(|_| panic!("Invalid GLCM feature: {}", f));
+            let feature = GLCMFeature::from_str(&f.to_lowercase()).unwrap_or_else(|_| panic!("Invalid GLCM feature: {f}"));
             opts.features.insert(feature,feature.to_string().to_lowercase());
         }
     }
 
     for to_omit in args.omit {
-        let feature = GLCMFeature::from_str(&to_omit.to_lowercase()).unwrap_or_else(|_| panic!("Invalid GLCM feature: {}", to_omit));
+        let feature = GLCMFeature::from_str(&to_omit.to_lowercase()).unwrap_or_else(|_| panic!("Invalid GLCM feature: {to_omit}"));
         opts.features.remove(&feature);
     }
 
@@ -148,7 +148,7 @@ fn main() {
         run_glcm_map(t_opts, vol, mask, t_dims, t_progress)
     });
 
-    if args.progress {
+    if !args.no_progress_bar {
         let pb = ProgressBar::new(vox_to_process);
         pb.set_style(ProgressStyle::with_template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
             .unwrap()
@@ -159,7 +159,7 @@ fn main() {
             thread::sleep(Duration::from_millis(100));
         }
         pb.finish_with_message("all voxels mapped successfully");
-        print!("\n");
+        println!();
     }
 
     let (results,..) = h.join().expect("Failed to join thread");
