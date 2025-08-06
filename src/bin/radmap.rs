@@ -13,6 +13,8 @@ use glcm::core::GLCMFeature;
 use glcm::run_glcm_map;
 use glcm::ui::MapOpts;
 use strum::IntoEnumIterator;
+use rayon::prelude::*;
+use rayon::current_num_threads;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -25,6 +27,7 @@ pub struct Args {
     output_dir: Option<PathBuf>,
 
     /// optional mask to limit number of voxels to accelerate calculations
+    #[clap(short, long)]
     mask: Option<PathBuf>,
 
     /// list all glcm features for reference
@@ -32,30 +35,32 @@ pub struct Args {
     list_features: bool,
 
     /// number of bins for the GLCM, 32 bins is default
+    #[clap(short, long)]
     n_bins: Option<usize>,
 
     /// determines the shell of voxels considered to be neighbors. Default is 1
+    #[clap(short, long)]
     kernel_radius: Option<i32>,
 
-    #[clap(short, long)]
     /// include all features. If `omit` is specified for some features, they will be
     /// removed from the collection
+    #[clap(short, long)]
     all_features: bool,
 
-    #[clap(short, long)]
     /// supply a single feature to include (multiple can be included with additional -f flags)
+    #[clap(short, long)]
     feature: Vec<String>,
 
-    #[clap(long)]
     /// supply a single feature to omit from calculations (multiple can be omitted with additional --omit flags)
+    #[clap(long)]
     omit: Vec<String>,
 
-    #[clap(long)]
     /// limit the number of parallel worker threads. This is the number of logical CPU cores
+    #[clap(long)]
     max_threads:Option<usize>,
 
-    #[clap(short,long)]
-    /// print a progress bar
+    /// print the progress bar. To disable, pass --progress false
+    #[clap(long, default_value="true")]
     progress: bool
 
 }
@@ -77,6 +82,15 @@ fn main() {
         max_threads: args.max_threads,
         ..Default::default()
     };
+
+    println!("num bins: {}",opts.n_bins);
+    println!("kernel radius: {}",opts.kernel_radius);
+    if let Some(threads) = opts.max_threads {
+        println!("limiting max logical cores to {}",threads);
+    }else {
+        let logical_cores = current_num_threads();
+        println!("using all {logical_cores} logical cores for processing");
+    }
 
     let output_dir = args.output_dir.as_ref().unwrap();
     let input_vol = args.input_vol.as_ref().unwrap();
@@ -108,8 +122,10 @@ fn main() {
         panic!("No features specified!");
     }
 
+    println!("loading volume ...");
     let (vol, dims, header) = read_volume(input_vol);
     let mask = if let Some(mask) = &args.mask {
+        println!("loading mask ...");
         let (mask_vol, mask_dims, ..) = read_volume(mask);
         assert_eq!(dims.shape_ns(), mask_dims.shape_ns(), "input volume and mask must have the same shape");
         Some(mask_vol)
@@ -119,9 +135,9 @@ fn main() {
 
     let vox_to_process = dims.numel() as u64;
 
-    let masked_voxels = mask.as_ref().map(|mask| mask.iter().filter(|x| **x != 0.).count()).unwrap_or(dims.numel());
+    let masked_voxels = mask.as_ref().map(|mask| mask.par_iter().filter(|x| **x != 0.).count()).unwrap_or(dims.numel());
     let n_features = opts.features.len();
-    println!("launching GLCM mapper for {n_features} features over {masked_voxels} voxels ...");
+    println!("launching GLCM mapper for {n_features} feature(s) over {masked_voxels} voxels ...");
 
     let progress = Arc::new(AtomicUsize::new(0));
     let t_progress = progress.clone();
@@ -140,15 +156,16 @@ fn main() {
         while pb.position() < vox_to_process {
             let val = progress.load(Ordering::Relaxed) as u64;
             pb.set_position(val);
-            thread::sleep(Duration::from_millis(15));
+            thread::sleep(Duration::from_millis(100));
         }
         pb.finish_with_message("all voxels mapped successfully");
+        print!("\n");
     }
 
     let (results,..) = h.join().expect("Failed to join thread");
 
     let duration = now.elapsed();
-    println!("{} voxels processed in {} minutes", masked_voxels, duration.as_secs_f64() / 60.);
+    println!("{} voxels processed in {:.03} minutes", masked_voxels, duration.as_secs_f64() / 60.);
 
     println!("writing outputs to {}",output_dir.display());
     let vol_stride = dims.numel();
